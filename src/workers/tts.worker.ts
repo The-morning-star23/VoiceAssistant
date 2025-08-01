@@ -51,7 +51,7 @@ class TTSPipeline {
             }
 
             // We cast the result of pipeline() to the specific function type we defined.
-            this.instance = pipeline(this.task, this.model, pipelineOptions) as Promise<TTSPipelineInstance>;
+            this.instance = pipeline(this.task, this.model, pipelineOptions) as unknown as Promise<TTSPipelineInstance>;
         }
         return this.instance;
     }
