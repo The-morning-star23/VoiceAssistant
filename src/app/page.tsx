@@ -33,6 +33,7 @@ export default function Home() {
 
     // This useEffect hook initializes our Web Workers and sets up message listeners
     useEffect(() => {
+        console.log("DEBUG: Initializing component and workers...");
         if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
             navigator.serviceWorker.register('/sw.js').catch(err => console.error('Service Worker registration failed:', err));
         }
@@ -41,10 +42,12 @@ export default function Home() {
             const worker = new Worker(new URL('../workers/whisper.worker.ts', import.meta.url), { type: 'module' });
             worker.onmessage = (event) => {
                 const { type, text } = event.data;
+                console.log("DEBUG: Message received from Whisper worker:", event.data);
                 if (type === 'transcription_result') {
                     handleTranscription(text);
                 } else if (type === 'error') {
                     console.error('Whisper Worker Error:', event.data.message);
+                    alert("Whisper worker failed. Check console.");
                     setStatus('idle');
                 }
             };
@@ -55,10 +58,12 @@ export default function Home() {
             const worker = new Worker(new URL('../workers/tts.worker.ts', import.meta.url), { type: 'module' });
             worker.onmessage = (event) => {
                 const { type, audio } = event.data;
+                console.log("DEBUG: Message received from TTS worker:", event.data);
                 if (type === 'synthesis_result') {
                     handleSynthesis(audio);
                 } else if (type === 'error') {
                     console.error('TTS Worker Error:', event.data.message);
+                    alert("TTS worker failed. Check console.");
                     setStatus('idle');
                 }
             };
@@ -66,7 +71,10 @@ export default function Home() {
         }
         
         const loadingTimeout = setTimeout(() => {
-            if (status === 'loading_models') setStatus('idle');
+            if (status === 'loading_models') {
+                console.log("DEBUG: Models loaded (timeout). Setting status to idle.");
+                setStatus('idle');
+            }
         }, 5000);
 
         return () => {
@@ -77,41 +85,56 @@ export default function Home() {
     }, [status]);
 
     const handleTranscription = (text: string) => {
+        console.log("DEBUG: Step 3 - Transcription received:", text);
         perfRef.current.stt_end = performance.now();
 
         setConversation(prev => [...prev, { speaker: 'user', text }]);
 
+        console.log("DEBUG: Step 4 - Sending transcribed text to API...");
         fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ prompt: text }),
         })
-        .then(res => res.json())
+        .then(res => {
+            console.log("DEBUG: Step 5 - Received response from API. Status:", res.status);
+            if (!res.ok) {
+                throw new Error(`API responded with status ${res.status}`);
+            }
+            return res.json();
+        })
         .then(data => {
+            console.log("DEBUG: Step 6 - Parsed API response data:", data);
             perfRef.current.llm_end = performance.now();
             const assistantResponse = data.response;
             if (assistantResponse && ttsWorkerRef.current) {
                 setConversation(prev => [...prev, { speaker: 'assistant', text: assistantResponse }]);
+                console.log("DEBUG: Step 7 - Sending AI response to TTS worker...");
                 ttsWorkerRef.current.postMessage({ text: assistantResponse });
             } else {
-                throw new Error(data.error || 'No response from API');
+                throw new Error(data.error || 'No valid response text from API');
             }
         })
         .catch(err => {
-            console.error("API Error:", err);
-            setConversation(prev => [...prev, { speaker: 'assistant', text: "Sorry, I couldn't get a response." }]);
+            console.error("DEBUG: API Error caught:", err);
+            setConversation(prev => [...prev, { speaker: 'assistant', text: "Sorry, there was an API error." }]);
             setStatus('idle');
         });
     };
 
     const handleSynthesis = (audioBlob: Blob) => {
+        console.log("DEBUG: Step 8 - Synthesis received from TTS worker.");
         perfRef.current.tts_end = performance.now();
         const audioUrl = URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
         
+        console.log("DEBUG: Playing audio...");
         setStatus('speaking');
         audio.play();
-        audio.onended = () => setStatus('idle');
+        audio.onended = () => {
+            console.log("DEBUG: Audio finished. Resetting to idle.");
+            setStatus('idle');
+        };
 
         const sttLatency = perfRef.current.stt_end ? perfRef.current.stt_end - perfRef.current.start : null;
         const llmLatency = perfRef.current.llm_end && perfRef.current.stt_end ? perfRef.current.llm_end - perfRef.current.stt_end : null;
@@ -133,9 +156,9 @@ export default function Home() {
     };
 
     const startRecording = async () => {
+        console.log("DEBUG: Start recording clicked.");
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            // Let the browser decide the mimeType for better compatibility.
             const recorder = new MediaRecorder(stream);
             mediaRecorderRef.current = recorder;
             audioChunksRef.current = [];
@@ -146,9 +169,8 @@ export default function Home() {
                 }
             };
 
-            // THIS IS THE CRITICAL FIX
             recorder.onstop = async () => {
-                // Immediately update status to give user feedback
+                console.log("DEBUG: Step 1 - Recording stopped. Processing audio...");
                 setStatus('thinking'); 
                 try {
                     const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType });
@@ -158,13 +180,13 @@ export default function Home() {
                     const decodedAudio = await audioContext.decodeAudioData(arrayBuffer);
                     const audioFloatArray = decodedAudio.getChannelData(0);
 
+                    console.log("DEBUG: Step 2 - Sending processed audio to Whisper worker...");
                     whisperWorkerRef.current?.postMessage(audioFloatArray);
                 } catch (error) {
-                    console.error("Error processing audio:", error);
+                    console.error("DEBUG: Error processing audio:", error);
                     alert("There was an error processing the audio. Please try again.");
-                    setStatus('idle'); // Reset state on error
+                    setStatus('idle');
                 } finally {
-                    // Clean up the microphone stream
                     stream.getTracks().forEach(track => track.stop());
                 }
             };
@@ -174,17 +196,17 @@ export default function Home() {
             setStatus('listening');
             perfRef.current = { start: performance.now() };
         } catch (error) {
-            console.error('Error accessing microphone:', error);
+            console.error('DEBUG: Error accessing microphone:', error);
             alert("Microphone access denied. Please allow microphone access in your browser settings.");
             setStatus('idle');
         }
     };
 
     const stopRecording = () => {
+        console.log("DEBUG: Stop recording clicked.");
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
             mediaRecorderRef.current.stop();
             setIsRecording(false);
-            // The 'onstop' handler will now take over and change the status.
         }
     };
 
