@@ -20,9 +20,9 @@ interface PerformanceMetrics {
 
 export default function Home() {
     // State management
-    const [status, setStatus] = useState('loading_models'); // Tracks the app's current state
-    const [conversation, setConversation] = useState<ConversationTurn[]>([]); // Stores the chat history
-    const [isRecording, setIsRecording] = useState(false); // Tracks if the microphone is active
+    const [status, setStatus] = useState('loading_models');
+    const [conversation, setConversation] = useState<ConversationTurn[]>([]);
+    const [isRecording, setIsRecording] = useState(false);
 
     // Refs for managing workers, media recorder, and performance timers
     const whisperWorkerRef = useRef<Worker | null>(null);
@@ -33,17 +33,13 @@ export default function Home() {
 
     // This useEffect hook initializes our Web Workers and sets up message listeners
     useEffect(() => {
-        // Register the service worker for offline capabilities (in production)
         if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
             navigator.serviceWorker.register('/sw.js').catch(err => console.error('Service Worker registration failed:', err));
         }
 
-        // Initialize the Whisper (STT) worker
         if (!whisperWorkerRef.current) {
-            const whisperWorker = new Worker(new URL('../workers/whisper.worker.ts', import.meta.url), { type: 'module' });
-            whisperWorkerRef.current = whisperWorker;
-
-            whisperWorker.onmessage = (event) => {
+            const worker = new Worker(new URL('../workers/whisper.worker.ts', import.meta.url), { type: 'module' });
+            worker.onmessage = (event) => {
                 const { type, text } = event.data;
                 if (type === 'transcription_result') {
                     handleTranscription(text);
@@ -52,14 +48,12 @@ export default function Home() {
                     setStatus('idle');
                 }
             };
+            whisperWorkerRef.current = worker;
         }
 
-        // Initialize the TTS worker
         if (!ttsWorkerRef.current) {
-            const ttsWorker = new Worker(new URL('../workers/tts.worker.ts', import.meta.url), { type: 'module' });
-            ttsWorkerRef.current = ttsWorker;
-
-            ttsWorker.onmessage = (event) => {
+            const worker = new Worker(new URL('../workers/tts.worker.ts', import.meta.url), { type: 'module' });
+            worker.onmessage = (event) => {
                 const { type, audio } = event.data;
                 if (type === 'synthesis_result') {
                     handleSynthesis(audio);
@@ -68,32 +62,25 @@ export default function Home() {
                     setStatus('idle');
                 }
             };
+            ttsWorkerRef.current = worker;
         }
         
-        // A simple timeout to change the initial status message.
-        // A more robust app would wait for 'model_loaded' messages from each worker.
         const loadingTimeout = setTimeout(() => {
-            if (status === 'loading_models') {
-                setStatus('idle');
-            }
-        }, 5000); // Give it 5 seconds before hiding the initial loading message.
+            if (status === 'loading_models') setStatus('idle');
+        }, 5000);
 
-        // Cleanup function to terminate workers and clear timeout when the component unmounts
         return () => {
             clearTimeout(loadingTimeout);
             whisperWorkerRef.current?.terminate();
             ttsWorkerRef.current?.terminate();
         };
-    }, [status]); // Rerun effect if status changes, e.g., to clear timeout.
+    }, [status]);
 
     const handleTranscription = (text: string) => {
         perfRef.current.stt_end = performance.now();
-        setStatus('thinking');
 
-        // Add user's transcribed text to the conversation
         setConversation(prev => [...prev, { speaker: 'user', text }]);
 
-        // Send the text to our backend API to get a response from Gemini
         fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -104,9 +91,7 @@ export default function Home() {
             perfRef.current.llm_end = performance.now();
             const assistantResponse = data.response;
             if (assistantResponse && ttsWorkerRef.current) {
-                // Add the AI's actual text response to the conversation
                 setConversation(prev => [...prev, { speaker: 'assistant', text: assistantResponse }]);
-                // Send the AI's text response to the TTS worker to be synthesized into audio
                 ttsWorkerRef.current.postMessage({ text: assistantResponse });
             } else {
                 throw new Error(data.error || 'No response from API');
@@ -123,19 +108,19 @@ export default function Home() {
         perfRef.current.tts_end = performance.now();
         const audioUrl = URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
+        
+        setStatus('speaking');
         audio.play();
+        audio.onended = () => setStatus('idle');
 
-        // Calculate performance metrics
         const sttLatency = perfRef.current.stt_end ? perfRef.current.stt_end - perfRef.current.start : null;
         const llmLatency = perfRef.current.llm_end && perfRef.current.stt_end ? perfRef.current.llm_end - perfRef.current.stt_end : null;
         const ttsLatency = perfRef.current.tts_end && perfRef.current.llm_end ? perfRef.current.tts_end - perfRef.current.llm_end : null;
         const totalLatency = perfRef.current.tts_end ? perfRef.current.tts_end - perfRef.current.start : null;
 
-        // Update the last assistant message with the final audio and performance data
         setConversation(prev => {
             const newConversation = [...prev];
             const lastTurnIndex = newConversation.findLastIndex(turn => turn.speaker === 'assistant');
-            
             if (lastTurnIndex !== -1) {
                 newConversation[lastTurnIndex] = {
                     ...newConversation[lastTurnIndex],
@@ -145,31 +130,43 @@ export default function Home() {
             }
             return newConversation;
         });
-
-        setStatus('speaking');
-        audio.onended = () => setStatus('idle');
     };
 
     const startRecording = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            // Let the browser decide the mimeType for better compatibility.
+            const recorder = new MediaRecorder(stream);
             mediaRecorderRef.current = recorder;
             audioChunksRef.current = [];
 
-            recorder.ondataavailable = (event) => audioChunksRef.current.push(event.data);
+            recorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    audioChunksRef.current.push(event.data);
+                }
+            };
 
+            // THIS IS THE CRITICAL FIX
             recorder.onstop = async () => {
-                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-                
-                const audioContext = new AudioContext({ sampleRate: 16000 });
-                const arrayBuffer = await audioBlob.arrayBuffer();
-                const decodedAudio = await audioContext.decodeAudioData(arrayBuffer);
-                const audioFloatArray = decodedAudio.getChannelData(0);
+                // Immediately update status to give user feedback
+                setStatus('thinking'); 
+                try {
+                    const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType });
+                    
+                    const audioContext = new AudioContext({ sampleRate: 16000 });
+                    const arrayBuffer = await audioBlob.arrayBuffer();
+                    const decodedAudio = await audioContext.decodeAudioData(arrayBuffer);
+                    const audioFloatArray = decodedAudio.getChannelData(0);
 
-                whisperWorkerRef.current?.postMessage(audioFloatArray);
-                
-                stream.getTracks().forEach(track => track.stop());
+                    whisperWorkerRef.current?.postMessage(audioFloatArray);
+                } catch (error) {
+                    console.error("Error processing audio:", error);
+                    alert("There was an error processing the audio. Please try again.");
+                    setStatus('idle'); // Reset state on error
+                } finally {
+                    // Clean up the microphone stream
+                    stream.getTracks().forEach(track => track.stop());
+                }
             };
 
             recorder.start();
@@ -184,9 +181,10 @@ export default function Home() {
     };
 
     const stopRecording = () => {
-        if (mediaRecorderRef.current && isRecording) {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
             mediaRecorderRef.current.stop();
             setIsRecording(false);
+            // The 'onstop' handler will now take over and change the status.
         }
     };
 
@@ -207,7 +205,6 @@ export default function Home() {
         return '...';
     };
 
-    // The button is disabled unless the app is idle or actively listening.
     const isButtonDisabled = status !== 'idle' && status !== 'listening';
 
     return (
