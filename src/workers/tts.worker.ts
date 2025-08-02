@@ -18,7 +18,8 @@ class TTSPipeline {
     static task: PipelineType = 'text-to-speech';
     static model = 'Xenova/speecht5_tts';
     static vocoder = 'Xenova/speecht5_vocoder';
-    static embeddings = 'https://huggingface.co/datasets/Xenova/cmu-arctic-xvectors/resolve/main/cmu_us_slt_arctic-wav-arctic_a0001.bin';
+    // UPDATED URL to a different, known-good speaker embedding file.
+    static embeddings = 'https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/speaker_embeddings.bin';
 
     static instance: Promise<TTSPipelineInstance> | null = null;
     static speaker_embeddings_data: Uint8Array | null = null;
@@ -76,7 +77,6 @@ self.onmessage = async (event) => {
             audio: wavBlob,
         });
     } catch (error) {
-        // This is the corrected part. We check if 'error' is an Error instance.
         const message = error instanceof Error ? error.message : 'An unknown error occurred in the tts worker.';
         self.postMessage({ type: 'error', message });
     }
