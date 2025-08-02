@@ -161,7 +161,7 @@ export default function Home() {
                 try {
                     const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType });
                     
-                    // Re-introducing AudioContext to properly decode the audio file blob
+                    // This is the most robust way to decode audio from a blob
                     const audioContext = new AudioContext({ sampleRate: 16000 });
                     const arrayBuffer = await audioBlob.arrayBuffer();
                     const decodedAudio = await audioContext.decodeAudioData(arrayBuffer);
@@ -169,7 +169,7 @@ export default function Home() {
 
                     // Send the clean, decoded audio data to the worker
                     whisperWorkerRef.current?.postMessage(
-                        audioFloatArray.buffer,
+                        audioFloatArray,
                         [audioFloatArray.buffer]
                     );
 
