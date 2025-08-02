@@ -33,9 +33,7 @@ export default function Home() {
 
     // This useEffect runs only ONCE to initialize the workers.
     useEffect(() => {
-        if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
-            navigator.serviceWorker.register('/sw.js').catch(err => console.error('Service Worker registration failed:', err));
-        }
+        // The service worker registration code has been completely removed.
 
         if (!whisperWorkerRef.current) {
             const worker = new Worker(new URL('../workers/whisper.worker.ts', import.meta.url), { type: 'module' });
