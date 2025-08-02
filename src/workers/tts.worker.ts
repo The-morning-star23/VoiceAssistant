@@ -1,13 +1,6 @@
-import { pipeline, PipelineType, RawImage } from '@xenova/transformers';
+// src/workers/tts.worker.ts (FINAL VERSION)
 
-// Define a specific type for the progress callback data
-interface ProgressData {
-    status: string;
-    file: string;
-    progress: number;
-    loaded: number;
-    total: number;
-}
+import { pipeline, PipelineType, RawImage } from '@xenova/transformers';
 
 // Define the expected output structure from the TTS model
 interface TTSOutput {
@@ -21,12 +14,8 @@ interface TTSCallOptions {
 }
 
 // Define the type for the TTS pipeline instance itself, which is a function.
-// It takes text and options, and returns a promise resolving to the audio output.
 type TTSPipelineInstance = (text: string, options: TTSCallOptions) => Promise<TTSOutput>;
 
-/**
- * Singleton class for the Text-to-Speech pipeline.
- */
 class TTSPipeline {
     static task: PipelineType = 'text-to-speech';
     static model = 'Xenova/speecht5_tts';
@@ -36,28 +25,20 @@ class TTSPipeline {
     static instance: Promise<TTSPipelineInstance> | null = null;
     static speaker_embeddings_data: Uint8Array | null = null;
 
-    static async getInstance(progress_callback?: (progress: ProgressData) => void) {
+    static async getInstance() {
         if (this.speaker_embeddings_data === null) {
             const speakerData = (await RawImage.fromURL(this.embeddings)).data;
             this.speaker_embeddings_data = new Uint8Array(speakerData);
         }
 
         if (this.instance === null) {
-            // The 'vocoder' option is valid at runtime but missing from some library type definitions.
-            // We create a custom options object and cast it to 'any' to bypass this specific type error cleanly.
             const pipelineOptions: Record<string, unknown> = { vocoder: this.vocoder };
-            if (progress_callback) {
-                pipelineOptions.progress_callback = progress_callback;
-            }
-
-            // We cast the result of pipeline() to the specific function type we defined.
             this.instance = pipeline(this.task, this.model, pipelineOptions) as unknown as Promise<TTSPipelineInstance>;
         }
         return this.instance;
     }
 }
 
-// Utility function to convert raw PCM audio data into a playable WAV file blob.
 function pcmToWav(pcm: Float32Array, sampleRate: number): Blob {
     const header = new ArrayBuffer(44);
     const view = new DataView(header);
@@ -84,28 +65,21 @@ function pcmToWav(pcm: Float32Array, sampleRate: number): Blob {
     return new Blob([header, pcmInt16], { type: 'audio/wav' });
 }
 
-
-// Main event listener for the worker
 self.onmessage = async (event) => {
     try {
         const { text } = event.data;
-
-        const synthesizer = await TTSPipeline.getInstance((progress) => {
-            self.postMessage({ type: 'download_progress', data: progress });
-        });
-
+        const synthesizer = await TTSPipeline.getInstance();
         const wav = await synthesizer(text, {
             speaker_embeddings: TTSPipeline.speaker_embeddings_data,
         });
-
         const wavBlob = pcmToWav(wav.audio, wav.sampling_rate);
-
         self.postMessage({
             type: 'synthesis_result',
             audio: wavBlob,
         });
-
     } catch (error) {
-        self.postMessage({ type: 'error', message: 'Synthesis failed', error });
+        // This is the corrected part. We check if 'error' is an Error instance.
+        const message = error instanceof Error ? error.message : 'An unknown error occurred in the tts worker.';
+        self.postMessage({ type: 'error', message });
     }
 };
