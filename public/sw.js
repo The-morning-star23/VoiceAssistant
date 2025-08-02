@@ -1,8 +1,7 @@
-// public/sw.js (FINAL, SIMPLIFIED VERSION)
+// public/sw.js (FINAL, ROBUST VERSION)
 
-const CACHE_NAME = 'offline-voice-assistant-v3'; // Increased version to force an update
+const CACHE_NAME = 'offline-voice-assistant-v4'; // Increased version to force an update
 
-// The list of files to cache remains the same.
 const MODEL_FILES_TO_CACHE = [
     // Whisper Base Model
     'https://huggingface.co/Xenova/whisper-base/resolve/main/config.json',
@@ -30,19 +29,32 @@ const MODEL_FILES_TO_CACHE = [
     'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/ort-wasm-simd-threaded.wasm',
 ];
 
+// This function fetches and caches files one by one.
+async function cacheFiles(cache) {
+    console.log('SW: Caching files individually...');
+    for (const url of MODEL_FILES_TO_CACHE) {
+        try {
+            // We use 'no-cors' mode which is more lenient for opaque resources from CDNs.
+            const request = new Request(url, { mode: 'no-cors' });
+            const response = await fetch(request);
+            if (response.ok || response.type === 'opaque') {
+                await cache.put(url, response);
+            } else {
+                console.warn(`SW: Failed to cache ${url}, status: ${response.status}`);
+            }
+        } catch (err) {
+            console.error(`SW: Caching failed for ${url}:`, err);
+        }
+    }
+    console.log('SW: Individual file caching complete.');
+}
+
 self.addEventListener('install', (event) => {
+    console.log('SW: Installing...');
     event.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {
-            console.log('SW: Caching model files...');
-            // We are removing the `{ mode: 'no-cors' }` part.
-            // We will let the browser make standard requests.
-            return cache.addAll(MODEL_FILES_TO_CACHE).catch(err => {
-                // This will catch if any single file fails to cache.
-                console.error("SW: Failed to cache files during install:", err);
-            });
-        }).then(() => {
-            return self.skipWaiting();
-        })
+        caches.open(CACHE_NAME)
+            .then(cache => cacheFiles(cache))
+            .then(() => self.skipWaiting())
     );
 });
 
@@ -61,21 +73,12 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-    // This strategy is called "Cache First".
     event.respondWith(
         caches.match(event.request).then((cachedResponse) => {
-            // If we have a copy in the cache, return it.
             if (cachedResponse) {
                 return cachedResponse;
             }
-            // Otherwise, fetch it from the network.
-            return fetch(event.request).then(networkResponse => {
-                // And after fetching, put a copy in the cache for next time.
-                return caches.open(CACHE_NAME).then(cache => {
-                    cache.put(event.request, networkResponse.clone());
-                    return networkResponse;
-                });
-            });
+            return fetch(event.request);
         })
     );
 });
