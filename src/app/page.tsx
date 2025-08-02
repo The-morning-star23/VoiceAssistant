@@ -33,8 +33,6 @@ export default function Home() {
 
     // This useEffect runs only ONCE to initialize the workers.
     useEffect(() => {
-        // The service worker registration code has been completely removed.
-
         if (!whisperWorkerRef.current) {
             const worker = new Worker(new URL('../workers/whisper.worker.ts', import.meta.url), { type: 'module' });
             worker.onmessage = (event) => {
@@ -163,15 +161,16 @@ export default function Home() {
                 try {
                     const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType });
                     
-                    const audioContext = new AudioContext({ sampleRate: 16000 });
+                    // THIS IS THE CRITICAL FIX:
+                    // We removed the complex AudioContext processing.
+                    // We will now convert the blob directly to an ArrayBuffer,
+                    // which is what the worker expects.
                     const arrayBuffer = await audioBlob.arrayBuffer();
-                    const decodedAudio = await audioContext.decodeAudioData(arrayBuffer);
-                    const audioFloatArray = decodedAudio.getChannelData(0);
 
-                    // Send the underlying ArrayBuffer as a "transferable" object for efficiency.
+                    // Send the ArrayBuffer as a "transferable" object for efficiency.
                     whisperWorkerRef.current?.postMessage(
-                        audioFloatArray.buffer,
-                        [audioFloatArray.buffer]
+                        arrayBuffer,
+                        [arrayBuffer]
                     );
 
                 } catch (error) {
