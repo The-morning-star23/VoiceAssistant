@@ -33,19 +33,17 @@ export default function Home() {
 
     // This useEffect hook initializes our Web Workers and sets up message listeners
     useEffect(() => {
-        if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
-            navigator.serviceWorker.register('/sw.js').catch(err => console.error('Service Worker registration failed:', err));
-        }
-
+        console.log("PAGE.TSX: Initializing component and workers...");
         if (!whisperWorkerRef.current) {
             const worker = new Worker(new URL('../workers/whisper.worker.ts', import.meta.url), { type: 'module' });
             worker.onmessage = (event) => {
-                const { type, text } = event.data;
+                console.log("PAGE.TSX: Message received from Whisper worker:", event.data);
+                const { type, text, message } = event.data;
                 if (type === 'transcription_result') {
                     handleTranscription(text);
                 } else if (type === 'error') {
-                    console.error('Whisper Worker Error:', event.data.message);
-                    alert(`Speech-to-text failed: ${event.data.message}`);
+                    console.error('PAGE.TSX: Whisper Worker Error:', message);
+                    alert(`Speech-to-text failed: ${message}`);
                     setStatus('idle');
                 }
             };
@@ -68,8 +66,11 @@ export default function Home() {
         }
         
         const loadingTimeout = setTimeout(() => {
-            if (status === 'loading_models') setStatus('idle');
-        }, 8000); // Increased timeout for model loading on slow networks
+            if (status === 'loading_models') {
+                console.log("PAGE.TSX: Models loaded (timeout). Setting status to idle.");
+                setStatus('idle');
+            }
+        }, 15000); // Increased timeout for slow first load
 
         return () => {
             clearTimeout(loadingTimeout);
@@ -79,34 +80,48 @@ export default function Home() {
     }, [status]);
 
     const handleTranscription = (text: string) => {
+        console.log("PAGE.TSX: Step 3 - Transcription received:", text);
         perfRef.current.stt_end = performance.now();
         setConversation(prev => [...prev, { speaker: 'user', text }]);
         
         setStatus('thinking');
+        console.log("PAGE.TSX: Step 4 - Sending transcribed text to API...");
         fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ prompt: text }),
         })
-        .then(res => res.json())
+        .then(res => {
+            console.log("PAGE.TSX: Step 5 - Received response from API. Status:", res.status);
+            if (!res.ok) {
+                // Try to get more specific error from body
+                return res.json().then(errBody => {
+                    throw new Error(errBody.error || `API responded with status ${res.status}`);
+                });
+            }
+            return res.json();
+        })
         .then(data => {
+            console.log("PAGE.TSX: Step 6 - Parsed API response data:", data);
             perfRef.current.llm_end = performance.now();
             const assistantResponse = data.response;
             if (assistantResponse && ttsWorkerRef.current) {
                 setConversation(prev => [...prev, { speaker: 'assistant', text: assistantResponse }]);
+                console.log("PAGE.TSX: Step 7 - Sending AI response to TTS worker...");
                 ttsWorkerRef.current.postMessage({ text: assistantResponse });
             } else {
-                throw new Error(data.error || 'No response from API');
+                throw new Error(data.error || 'No valid response text from API');
             }
         })
         .catch(err => {
-            console.error("API Error:", err);
-            setConversation(prev => [...prev, { speaker: 'assistant', text: "Sorry, I couldn't get a response." }]);
+            console.error("PAGE.TSX: API Error caught:", err.message);
+            setConversation(prev => [...prev, { speaker: 'assistant', text: `Sorry, an error occurred: ${err.message}` }]);
             setStatus('idle');
         });
     };
 
     const handleSynthesis = (audioBlob: Blob) => {
+        console.log("PAGE.TSX: Step 8 - Synthesis received from TTS worker.");
         perfRef.current.tts_end = performance.now();
         const audioUrl = URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
@@ -135,6 +150,7 @@ export default function Home() {
     };
 
     const startRecording = async () => {
+        console.log("PAGE.TSX: startRecording clicked.");
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const recorder = new MediaRecorder(stream);
@@ -148,23 +164,23 @@ export default function Home() {
             };
 
             recorder.onstop = async () => {
+                console.log("PAGE.TSX: Step 1 - Recording stopped. Processing audio...");
                 setStatus('thinking'); 
                 try {
                     const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType });
-                    
                     const audioContext = new AudioContext({ sampleRate: 16000 });
                     const arrayBuffer = await audioBlob.arrayBuffer();
                     const decodedAudio = await audioContext.decodeAudioData(arrayBuffer);
                     const audioFloatArray = decodedAudio.getChannelData(0);
 
-                    // Send the underlying ArrayBuffer as a "transferable" object for efficiency.
+                    console.log("PAGE.TSX: Step 2 - Sending processed audio to Whisper worker. Length:", audioFloatArray.length);
                     whisperWorkerRef.current?.postMessage(
                         audioFloatArray.buffer,
                         [audioFloatArray.buffer]
                     );
 
                 } catch (error) {
-                    console.error("Error processing audio:", error);
+                    console.error("PAGE.TSX: Error processing audio:", error);
                     alert("There was an error processing the audio. Please try again.");
                     setStatus('idle');
                 } finally {
@@ -177,7 +193,7 @@ export default function Home() {
             setStatus('listening');
             perfRef.current = { start: performance.now() };
         } catch (error) {
-            console.error('Error accessing microphone:', error);
+            console.error('PAGE.TSX: Error accessing microphone:', error);
             alert("Microphone access denied. Please allow microphone access in your browser settings.");
             setStatus('idle');
         }
