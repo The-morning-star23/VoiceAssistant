@@ -170,6 +170,7 @@ export default function Home() {
                     const decodedAudio = await audioContext.decodeAudioData(arrayBuffer);
                     const audioFloatArray = decodedAudio.getChannelData(0);
 
+                    // Send the underlying ArrayBuffer as a "transferable" object for efficiency.
                     whisperWorkerRef.current?.postMessage(
                         audioFloatArray.buffer,
                         [audioFloatArray.buffer]

@@ -1,5 +1,3 @@
-// src/workers/whisper.worker.ts (FINAL VERSION)
-
 import { pipeline, AutomaticSpeechRecognitionPipeline, PipelineType } from '@xenova/transformers';
 
 class WhisperPipeline {
