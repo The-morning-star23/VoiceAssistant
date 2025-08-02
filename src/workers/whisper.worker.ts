@@ -17,7 +17,9 @@ self.onmessage = async (event) => {
     try {
         const transcriber = await WhisperPipeline.getInstance();
         
-        const audioData = new Float32Array(event.data);
+        // The library can process the raw ArrayBuffer directly.
+        // This avoids the Float32Array byte length error.
+        const audioData = event.data;
 
         const transcript = await transcriber(audioData, {
             chunk_length_s: 30,
@@ -28,7 +30,7 @@ self.onmessage = async (event) => {
         
         self.postMessage({
             type: 'transcription_result',
-            text: resultText || "...",
+            text: resultText || "Transcription was empty.",
         });
 
     } catch (error) {
