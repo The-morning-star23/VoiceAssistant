@@ -160,12 +160,17 @@ export default function Home() {
                 setStatus('thinking'); 
                 try {
                     const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType });
+                    
+                    // Re-introducing AudioContext to properly decode the audio file blob
+                    const audioContext = new AudioContext({ sampleRate: 16000 });
                     const arrayBuffer = await audioBlob.arrayBuffer();
+                    const decodedAudio = await audioContext.decodeAudioData(arrayBuffer);
+                    const audioFloatArray = decodedAudio.getChannelData(0);
 
-                    // Send the raw ArrayBuffer. The worker will handle it.
+                    // Send the clean, decoded audio data to the worker
                     whisperWorkerRef.current?.postMessage(
-                        arrayBuffer,
-                        [arrayBuffer]
+                        audioFloatArray.buffer,
+                        [audioFloatArray.buffer]
                     );
 
                 } catch (error) {
