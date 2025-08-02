@@ -1,5 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { pipeline, PipelineType, RawImage } from '@xenova/transformers';
+import { pipeline, PipelineType } from '@xenova/transformers';
 
 // Define the expected output structure from the TTS model
 interface TTSOutput {
@@ -9,7 +8,7 @@ interface TTSOutput {
 
 // Define the expected input options for the TTS function call
 interface TTSCallOptions {
-    speaker_embeddings: Uint8Array | null;
+    speaker_embeddings: Float32Array | null;
 }
 
 // Define the type for the TTS pipeline instance itself, which is a function.
@@ -22,19 +21,16 @@ class TTSPipeline {
     static embeddings = 'https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/speaker_embeddings.bin';
 
     static instance: Promise<TTSPipelineInstance> | null = null;
-    static speaker_embeddings_data: Uint8Array | null = null;
+    static speaker_embeddings_data: Float32Array | null = null;
 
     static async getInstance() {
-        // THIS IS THE NEW, MORE ROBUST METHOD
         if (this.speaker_embeddings_data === null) {
-            console.log("TTS WORKER: Manually fetching speaker embeddings...");
             const response = await fetch(this.embeddings);
             if (!response.ok) {
                 throw new Error(`Failed to fetch speaker embeddings: ${response.statusText}`);
             }
             const buffer = await response.arrayBuffer();
-            this.speaker_embeddings_data = new Uint8Array(buffer);
-            console.log("TTS WORKER: Speaker embeddings loaded successfully.");
+            this.speaker_embeddings_data = new Float32Array(buffer);
         }
 
         if (this.instance === null) {
