@@ -161,16 +161,24 @@ export default function Home() {
                 try {
                     const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType });
                     
-                    // THIS IS THE CRITICAL FIX:
-                    // We removed the complex AudioContext processing.
-                    // We will now convert the blob directly to an ArrayBuffer,
-                    // which is what the worker expects.
+                    const audioContext = new AudioContext({ sampleRate: 16000 });
                     const arrayBuffer = await audioBlob.arrayBuffer();
+                    const decodedAudio = await audioContext.decodeAudioData(arrayBuffer);
+                    let audioFloatArray = decodedAudio.getChannelData(0);
 
-                    // Send the ArrayBuffer as a "transferable" object for efficiency.
+                    // THIS IS THE CRITICAL FIX
+                    // Check if the byte length is a multiple of 4. If not, pad it.
+                    if (audioFloatArray.buffer.byteLength % 4 !== 0) {
+                        const newLength = Math.ceil(audioFloatArray.length / 4) * 4;
+                        const paddedArray = new Float32Array(newLength);
+                        paddedArray.set(audioFloatArray);
+                        audioFloatArray = paddedArray;
+                    }
+
+                    // Send the underlying ArrayBuffer as a "transferable" object for efficiency.
                     whisperWorkerRef.current?.postMessage(
-                        arrayBuffer,
-                        [arrayBuffer]
+                        audioFloatArray.buffer,
+                        [audioFloatArray.buffer]
                     );
 
                 } catch (error) {
