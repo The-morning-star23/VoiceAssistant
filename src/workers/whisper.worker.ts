@@ -17,7 +17,6 @@ self.onmessage = async (event) => {
     try {
         const transcriber = await WhisperPipeline.getInstance();
         
-        // The main thread sends the ArrayBuffer directly
         const audioData = new Float32Array(event.data);
 
         const transcript = await transcriber(audioData, {
