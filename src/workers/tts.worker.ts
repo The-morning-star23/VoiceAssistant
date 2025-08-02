@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { pipeline, PipelineType, RawImage } from '@xenova/transformers';
 
 // Define the expected output structure from the TTS model
@@ -18,16 +19,22 @@ class TTSPipeline {
     static task: PipelineType = 'text-to-speech';
     static model = 'Xenova/speecht5_tts';
     static vocoder = 'Xenova/speecht5_vocoder';
-    // UPDATED URL to a different, known-good speaker embedding file.
     static embeddings = 'https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/speaker_embeddings.bin';
 
     static instance: Promise<TTSPipelineInstance> | null = null;
     static speaker_embeddings_data: Uint8Array | null = null;
 
     static async getInstance() {
+        // THIS IS THE NEW, MORE ROBUST METHOD
         if (this.speaker_embeddings_data === null) {
-            const speakerData = (await RawImage.fromURL(this.embeddings)).data;
-            this.speaker_embeddings_data = new Uint8Array(speakerData);
+            console.log("TTS WORKER: Manually fetching speaker embeddings...");
+            const response = await fetch(this.embeddings);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch speaker embeddings: ${response.statusText}`);
+            }
+            const buffer = await response.arrayBuffer();
+            this.speaker_embeddings_data = new Uint8Array(buffer);
+            console.log("TTS WORKER: Speaker embeddings loaded successfully.");
         }
 
         if (this.instance === null) {
