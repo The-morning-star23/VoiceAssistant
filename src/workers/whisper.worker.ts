@@ -1,68 +1,56 @@
-// src/workers/whisper.worker.ts (DEBUG VERSION)
+// src/workers/whisper.worker.ts (BULLETPROOF DEBUG VERSION 2)
 
 import { pipeline, AutomaticSpeechRecognitionPipeline, PipelineType } from '@xenova/transformers';
 
-interface ProgressData {
-    status: string;
-    file: string;
-    progress: number;
-    loaded: number;
-    total: number;
-}
+console.log("WHISPER WORKER: Script loaded.");
 
 class WhisperPipeline {
     static task: PipelineType = 'automatic-speech-recognition';
     static model = 'Xenova/whisper-base';
     static instance: Promise<AutomaticSpeechRecognitionPipeline> | null = null;
 
-    static async getInstance(progress_callback?: (progress: ProgressData) => void) {
+    static async getInstance() {
+        console.log("WHISPER WORKER: getInstance called.");
         if (this.instance === null) {
-            this.instance = pipeline(this.task, this.model, { progress_callback }) as unknown as Promise<AutomaticSpeechRecognitionPipeline>;
+            console.log("WHISPER WORKER: Pipeline instance is null, creating new one.");
+            this.instance = pipeline(this.task, this.model) as unknown as Promise<AutomaticSpeechRecognitionPipeline>;
         }
         return this.instance;
     }
 }
 
-// Main event listener for the worker
 self.onmessage = async (event) => {
+    console.log("WHISPER WORKER: onmessage fired. Data received.");
     try {
-        console.log("WHISPER WORKER: Message received. Starting process.");
-
-        // 1. Retrieve the pipeline instance.
-        console.log("WHISPER WORKER: Loading model...");
-        const transcriber = await WhisperPipeline.getInstance((progress) => {
-            self.postMessage({ type: 'download_progress', data: progress });
-        });
-        console.log("WHISPER WORKER: Model loaded successfully.");
-
-        // 2. Extract the audio data from the event message.
+        const transcriber = await WhisperPipeline.getInstance();
+        console.log("WHISPER WORKER: Pipeline instance retrieved.");
+        
         const audioData = new Float32Array(event.data);
-        console.log("WHISPER WORKER: Audio data received, length:", audioData.length);
+        console.log("WHISPER WORKER: Audio data processed, length:", audioData.length);
 
-        // 3. Perform the transcription.
-        console.log("WHISPER WORKER: Starting transcription...");
+        if (audioData.length === 0) {
+            throw new Error("Received empty audio data.");
+        }
+
         const transcript = await transcriber(audioData, {
             chunk_length_s: 30,
             stride_length_s: 5,
-            language: 'english',
-            task: 'transcribe',
         });
         console.log("WHISPER WORKER: Transcription complete.", transcript);
 
-        // 4. Send the result back to the main thread.
         const resultText = (transcript as { text: string }).text;
-        if (resultText) {
-            console.log("WHISPER WORKER: Sending result back to main thread.");
-            self.postMessage({
-                type: 'transcription_result',
-                text: resultText,
-            });
-        } else {
-            throw new Error("Transcription result text is empty.");
-        }
-    } catch (error) {
-        // If anything goes wrong, send a detailed error message back.
-        console.error("WHISPER WORKER: An error occurred:", error);
-        self.postMessage({ type: 'error', message: 'Transcription failed inside worker', error });
+        
+        console.log("WHISPER WORKER: Sending result back to main thread.");
+        self.postMessage({
+            type: 'transcription_result',
+            text: resultText || "...", // Send something back even if text is empty
+        });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (error: any) {
+        console.error("WHISPER WORKER: CATCH BLOCK - An error occurred:", error);
+        self.postMessage({ type: 'error', message: error.message || 'An unknown error occurred in the whisper worker.' });
     }
 };
+
+console.log("WHISPER WORKER: Event listener attached.");

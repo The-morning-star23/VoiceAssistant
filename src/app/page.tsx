@@ -1,4 +1,4 @@
-// src/app/page.tsx (FINAL VERSION)
+// src/app/page.tsx (BULLETPROOF DEBUG VERSION 2)
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -20,6 +20,7 @@ interface PerformanceMetrics {
 }
 
 export default function Home() {
+    console.log('HOME COMPONENT: Rendering.');
     // State management
     const [status, setStatus] = useState('loading_models');
     const [conversation, setConversation] = useState<ConversationTurn[]>([]);
@@ -34,54 +35,64 @@ export default function Home() {
 
     // This useEffect hook initializes our Web Workers and sets up message listeners
     useEffect(() => {
-        if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
-            navigator.serviceWorker.register('/sw.js').catch(err => console.error('Service Worker registration failed:', err));
-        }
+        console.log('PAGE.TSX: useEffect running. Initializing workers...');
+        try {
+            if (!whisperWorkerRef.current) {
+                const worker = new Worker(new URL('../workers/whisper.worker.ts', import.meta.url), { type: 'module' });
+                console.log('PAGE.TSX: Whisper worker created.');
+                worker.onmessage = (event) => {
+                    console.log("PAGE.TSX: Message received from Whisper worker:", event.data);
+                    const { type, text } = event.data;
+                    if (type === 'transcription_result') {
+                        handleTranscription(text);
+                    } else if (type === 'error') {
+                        console.error('PAGE.TSX: Whisper Worker Error:', event.data.message);
+                        alert(`Whisper worker failed: ${event.data.message}`);
+                        setStatus('idle');
+                    }
+                };
+                whisperWorkerRef.current = worker;
+            }
 
-        if (!whisperWorkerRef.current) {
-            const worker = new Worker(new URL('../workers/whisper.worker.ts', import.meta.url), { type: 'module' });
-            worker.onmessage = (event) => {
-                const { type, text } = event.data;
-                if (type === 'transcription_result') {
-                    handleTranscription(text);
-                } else if (type === 'error') {
-                    console.error('Whisper Worker Error:', event.data.message);
-                    alert("Speech-to-text failed. Please check the console for errors.");
-                    setStatus('idle');
-                }
-            };
-            whisperWorkerRef.current = worker;
-        }
-
-        if (!ttsWorkerRef.current) {
-            const worker = new Worker(new URL('../workers/tts.worker.ts', import.meta.url), { type: 'module' });
-            worker.onmessage = (event) => {
-                const { type, audio } = event.data;
-                if (type === 'synthesis_result') {
-                    handleSynthesis(audio);
-                } else if (type === 'error') {
-                    console.error('TTS Worker Error:', event.data.message);
-                    alert("Text-to-speech failed. Please check the console for errors.");
-                    setStatus('idle');
-                }
-            };
-            ttsWorkerRef.current = worker;
+            if (!ttsWorkerRef.current) {
+                const worker = new Worker(new URL('../workers/tts.worker.ts', import.meta.url), { type: 'module' });
+                 console.log('PAGE.TSX: TTS worker created.');
+                worker.onmessage = (event) => {
+                    console.log("PAGE.TSX: Message received from TTS worker:", event.data);
+                    const { type, audio } = event.data;
+                    if (type === 'synthesis_result') {
+                        handleSynthesis(audio);
+                    } else if (type === 'error') {
+                        console.error('PAGE.TSX: TTS Worker Error:', event.data.message);
+                        alert(`TTS worker failed: ${event.data.message}`);
+                        setStatus('idle');
+                    }
+                };
+                ttsWorkerRef.current = worker;
+            }
+        } catch (e) {
+            console.error("PAGE.TSX: Failed to initialize workers.", e);
+            alert("A critical error occurred while setting up the page. Check the console.");
         }
         
         const loadingTimeout = setTimeout(() => {
-            if (status === 'loading_models') setStatus('idle');
-        }, 5000);
+            if (status === 'loading_models') {
+                console.log("PAGE.TSX: Models loaded (timeout). Setting status to idle.");
+                setStatus('idle');
+            }
+        }, 8000); // Increased timeout
 
         return () => {
             clearTimeout(loadingTimeout);
             whisperWorkerRef.current?.terminate();
             ttsWorkerRef.current?.terminate();
         };
-    }, [status]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const handleTranscription = (text: string) => {
+        console.log("PAGE.TSX: handleTranscription called with text:", text);
         perfRef.current.stt_end = performance.now();
-
         setConversation(prev => [...prev, { speaker: 'user', text }]);
         
         setStatus('thinking');
@@ -102,13 +113,14 @@ export default function Home() {
             }
         })
         .catch(err => {
-            console.error("API Error:", err);
+            console.error("PAGE.TSX: API Error:", err);
             setConversation(prev => [...prev, { speaker: 'assistant', text: "Sorry, I couldn't get a response." }]);
             setStatus('idle');
         });
     };
 
     const handleSynthesis = (audioBlob: Blob) => {
+        console.log("PAGE.TSX: handleSynthesis called.");
         perfRef.current.tts_end = performance.now();
         const audioUrl = URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
@@ -137,6 +149,7 @@ export default function Home() {
     };
 
     const startRecording = async () => {
+        console.log("PAGE.TSX: startRecording called.");
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const recorder = new MediaRecorder(stream);
@@ -150,6 +163,7 @@ export default function Home() {
             };
 
             recorder.onstop = async () => {
+                console.log("PAGE.TSX: onstop event fired.");
                 setStatus('thinking'); 
                 try {
                     const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType });
@@ -159,16 +173,17 @@ export default function Home() {
                     const decodedAudio = await audioContext.decodeAudioData(arrayBuffer);
                     const audioFloatArray = decodedAudio.getChannelData(0);
 
-                    // THIS IS THE CRITICAL FIX
-                    // We send the underlying ArrayBuffer as a "transferable" object.
-                    // This avoids a slow, memory-intensive copy operation and is more reliable.
-                    whisperWorkerRef.current?.postMessage(
-                        audioFloatArray.buffer,
-                        [audioFloatArray.buffer]
-                    );
+                    console.log("PAGE.TSX: Sending audio data to Whisper worker. Length:", audioFloatArray.length);
+                    if (whisperWorkerRef.current) {
+                        // Using the simpler, non-transferable method for now to ensure it works.
+                        whisperWorkerRef.current.postMessage(audioFloatArray);
+                    } else {
+                        console.error("PAGE.TSX: Whisper worker is not available.");
+                        alert("ERROR: Whisper worker not ready.");
+                    }
 
                 } catch (error) {
-                    console.error("Error processing audio:", error);
+                    console.error("PAGE.TSX: Error processing audio:", error);
                     alert("There was an error processing the audio. Please try again.");
                     setStatus('idle');
                 } finally {
@@ -181,13 +196,14 @@ export default function Home() {
             setStatus('listening');
             perfRef.current = { start: performance.now() };
         } catch (error) {
-            console.error('Error accessing microphone:', error);
+            console.error('PAGE.TSX: Error accessing microphone:', error);
             alert("Microphone access denied. Please allow microphone access in your browser settings.");
             setStatus('idle');
         }
     };
 
     const stopRecording = () => {
+        console.log("PAGE.TSX: stopRecording called.");
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
             mediaRecorderRef.current.stop();
             setIsRecording(false);
