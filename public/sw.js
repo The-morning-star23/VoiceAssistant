@@ -1,8 +1,5 @@
-// public/sw.js (FINAL, SIMPLIFIED VERSION)
-
 const CACHE_NAME = 'offline-voice-assistant-app-v1';
-// We will only cache the main page of our application shell.
-// The large model files will be handled by the browser's standard HTTP cache.
+
 const urlsToCache = [
   '/',
 ];
@@ -43,6 +40,4 @@ self.addEventListener('fetch', (event) => {
       })
     );
   }
-  // For all other requests (like to Hugging Face), we let them go directly to the network.
-  // The browser will cache these automatically.
 });

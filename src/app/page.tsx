@@ -1,4 +1,3 @@
-// src/app/page.tsx (FINAL VERSION)
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -77,8 +76,7 @@ export default function Home() {
             whisperWorkerRef.current?.terminate();
             ttsWorkerRef.current?.terminate();
         };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [status]);
 
     const handleTranscription = (text: string) => {
         perfRef.current.stt_end = performance.now();

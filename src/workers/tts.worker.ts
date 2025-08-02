@@ -1,5 +1,3 @@
-// src/workers/tts.worker.ts (FINAL VERSION)
-
 import { pipeline, PipelineType, RawImage } from '@xenova/transformers';
 
 // Define the expected output structure from the TTS model

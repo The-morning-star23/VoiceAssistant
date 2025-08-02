@@ -1,5 +1,3 @@
-// src/workers/whisper.worker.ts (FINAL FIX)
-
 import { pipeline, AutomaticSpeechRecognitionPipeline, PipelineType } from '@xenova/transformers';
 
 class WhisperPipeline {
@@ -19,6 +17,7 @@ self.onmessage = async (event) => {
     try {
         const transcriber = await WhisperPipeline.getInstance();
         
+        // The main thread sends the ArrayBuffer directly
         const audioData = new Float32Array(event.data);
 
         const transcript = await transcriber(audioData, {
@@ -34,7 +33,6 @@ self.onmessage = async (event) => {
         });
 
     } catch (error) {
-        // This is the corrected part. We check if 'error' is an Error instance.
         const message = error instanceof Error ? error.message : 'An unknown error occurred in the whisper worker.';
         self.postMessage({ type: 'error', message });
     }
