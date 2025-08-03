@@ -41,7 +41,6 @@ export default function Home() {
                     case 'model_loading':
                         setStatus(`loading_stt_${message.status}`);
                         if (message.status === 'ready') {
-                            // Once STT is ready, trigger TTS model load
                             ttsWorkerRef.current?.postMessage({ type: 'load' });
                         }
                         break;
@@ -66,7 +65,7 @@ export default function Home() {
                     case 'model_loading':
                         setStatus(`loading_tts_${message.status}`);
                         if (message.status === 'ready') {
-                            setStatus('idle'); // Both models are now ready
+                            setStatus('idle');
                         }
                         break;
                     case 'synthesis_result':
@@ -82,17 +81,16 @@ export default function Home() {
             ttsWorkerRef.current = worker;
         }
         
-        // Trigger initial STT model loading. TTS will be triggered after.
         whisperWorkerRef.current?.postMessage({ type: 'load' });
 
         return () => {
             whisperWorkerRef.current?.terminate();
             ttsWorkerRef.current?.terminate();
         };
-    }, []); // Empty dependency array ensures this runs only once.
+    }, []);
 
     const handleTranscription = (text: string) => {
-        if (!text || text.trim() === 'Transcription was empty.') {
+        if (!text || text.trim() === '' || text.trim() === 'Transcription was empty.') {
             setStatus('idle');
             alert("Could not understand audio. Please try speaking again.");
             return;
