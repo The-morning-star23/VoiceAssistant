@@ -45,7 +45,7 @@ npm or yarn
 ### Installation
 Clone the repository:
 
-git clone https://github.com/The-morning-star23/VoiceAssistant
+git clone https://github.com/The-morning-star23/VoiceAssistant.git
 cd offline -voice-assistant
 
 Install dependencies:
