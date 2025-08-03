@@ -30,9 +30,8 @@ class TTSPipeline {
         }
 
         if (this.instance === null) {
-            // This is the critical fix: Tell the library to not look for optimized models.
             const pipelineOptions: Record<string, unknown> = { 
-                quantized: false,
+                quantized: false, // This is the critical fix
                 vocoder: this.vocoder, 
                 progress_callback 
             };

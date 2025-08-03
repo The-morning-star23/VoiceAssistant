@@ -10,9 +10,8 @@ class WhisperPipeline {
 
     static async getInstance(progress_callback?: ProgressCallback) {
         if (this.instance === null) {
-            // This is the critical fix: Tell the library to not look for optimized models.
             this.instance = pipeline(this.task, this.model, { 
-                quantized: false,
+                quantized: false, // This is the critical fix
                 progress_callback 
             }) as unknown as Promise<AutomaticSpeechRecognitionPipeline>;
         }

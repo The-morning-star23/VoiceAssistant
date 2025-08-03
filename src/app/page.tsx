@@ -213,8 +213,8 @@ export default function Home() {
     };
 
     const getStatusText = () => {
-        if (status.startsWith('loading_stt')) return 'Loading speech-to-text model...';
-        if (status.startsWith('loading_tts')) return 'Loading text-to-speech model...';
+        if (status.startsWith('loading_stt')) return 'Loading speech-to-text model... (this can take a minute on first use)';
+        if (status.startsWith('loading_tts')) return 'Loading text-to-speech model... (this can take a minute on first use)';
         if (status === 'loading_models') return 'Initializing AI models...';
         if (status === 'idle') return 'Press the button and start speaking';
         if (status === 'listening') return 'Listening...';
