@@ -37,14 +37,22 @@ export default function Home() {
             const worker = new Worker(new URL('../workers/whisper.worker.ts', import.meta.url), { type: 'module' });
             worker.onmessage = (event) => {
                 const { type, text, message } = event.data;
-                if (type === 'transcription_result') {
-                    handleTranscription(text);
-                } else if (type === 'model_loading') {
-                    setStatus(`loading_stt_${message.status}`);
-                } else if (type === 'error') {
-                    console.error('Whisper Worker Error:', message);
-                    alert(`Speech-to-text failed: ${message}`);
-                    setStatus('idle');
+                switch (type) {
+                    case 'model_loading':
+                        setStatus(`loading_stt_${message.status}`);
+                        if (message.status === 'ready') {
+                            // Once STT is ready, trigger TTS model load
+                            ttsWorkerRef.current?.postMessage({ type: 'load' });
+                        }
+                        break;
+                    case 'transcription_result':
+                        handleTranscription(text);
+                        break;
+                    case 'error':
+                        console.error('Whisper Worker Error:', message);
+                        alert(`Speech-to-text failed: ${message}`);
+                        setStatus('idle');
+                        break;
                 }
             };
             whisperWorkerRef.current = worker;
@@ -54,22 +62,28 @@ export default function Home() {
             const worker = new Worker(new URL('../workers/tts.worker.ts', import.meta.url), { type: 'module' });
             worker.onmessage = (event) => {
                 const { type, audio, message } = event.data;
-                if (type === 'synthesis_result') {
-                    handleSynthesis(audio);
-                } else if (type === 'model_loading') {
-                    setStatus(`loading_tts_${message.status}`);
-                } else if (type === 'error') {
-                    console.error('TTS Worker Error:', message);
-                    alert(`Text-to-speech failed: ${message}`);
-                    setStatus('idle');
+                switch (type) {
+                    case 'model_loading':
+                        setStatus(`loading_tts_${message.status}`);
+                        if (message.status === 'ready') {
+                            setStatus('idle'); // Both models are now ready
+                        }
+                        break;
+                    case 'synthesis_result':
+                        handleSynthesis(audio);
+                        break;
+                    case 'error':
+                        console.error('TTS Worker Error:', message);
+                        alert(`Text-to-speech failed: ${message}`);
+                        setStatus('idle');
+                        break;
                 }
             };
             ttsWorkerRef.current = worker;
         }
         
-        // Trigger initial model loading
+        // Trigger initial STT model loading. TTS will be triggered after.
         whisperWorkerRef.current?.postMessage({ type: 'load' });
-        ttsWorkerRef.current?.postMessage({ type: 'load' });
 
         return () => {
             whisperWorkerRef.current?.terminate();
@@ -78,6 +92,11 @@ export default function Home() {
     }, []); // Empty dependency array ensures this runs only once.
 
     const handleTranscription = (text: string) => {
+        if (!text || text.trim() === 'Transcription was empty.') {
+            setStatus('idle');
+            alert("Could not understand audio. Please try speaking again.");
+            return;
+        }
         perfRef.current.stt_end = performance.now();
         setConversation(prev => [...prev, { speaker: 'user', text }]);
         
@@ -198,7 +217,7 @@ export default function Home() {
     const getStatusText = () => {
         if (status.startsWith('loading_stt')) return 'Loading speech-to-text model...';
         if (status.startsWith('loading_tts')) return 'Loading text-to-speech model...';
-        if (status === 'loading_models') return 'Loading AI models...';
+        if (status === 'loading_models') return 'Initializing AI models...';
         if (status === 'idle') return 'Press the button and start speaking';
         if (status === 'listening') return 'Listening...';
         if (status === 'stt_transcribing') return 'Transcribing audio...';

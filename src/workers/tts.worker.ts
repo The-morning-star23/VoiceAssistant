@@ -1,17 +1,21 @@
 import { pipeline, PipelineType } from '@xenova/transformers';
 
-// Define the expected output structure from the TTS model
+// Define a specific type for the progress callback
+type ProgressCallback = (progress: {
+    status: string;
+    file: string;
+    progress: number;
+    loaded: number;
+    total: number;
+}) => void;
+
 interface TTSOutput {
     audio: Float32Array;
     sampling_rate: number;
 }
-
-// Define the expected input options for the TTS function call
 interface TTSCallOptions {
     speaker_embeddings: Float32Array | null;
 }
-
-// Define the type for the TTS pipeline instance itself, which is a function.
 type TTSPipelineInstance = (text: string, options: TTSCallOptions) => Promise<TTSOutput>;
 
 class TTSPipeline {
@@ -23,18 +27,16 @@ class TTSPipeline {
     static instance: Promise<TTSPipelineInstance> | null = null;
     static speaker_embeddings_data: Float32Array | null = null;
 
-    static async getInstance() {
+    static async getInstance(progress_callback?: ProgressCallback) {
         if (this.speaker_embeddings_data === null) {
             const response = await fetch(this.embeddings);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch speaker embeddings: ${response.statusText}`);
-            }
+            if (!response.ok) throw new Error(`Failed to fetch speaker embeddings: ${response.statusText}`);
             const buffer = await response.arrayBuffer();
             this.speaker_embeddings_data = new Float32Array(buffer);
         }
 
         if (this.instance === null) {
-            const pipelineOptions: Record<string, unknown> = { vocoder: this.vocoder };
+            const pipelineOptions: Record<string, unknown> = { vocoder: this.vocoder, progress_callback };
             this.instance = pipeline(this.task, this.model, pipelineOptions) as unknown as Promise<TTSPipelineInstance>;
         }
         return this.instance;
@@ -68,17 +70,25 @@ function pcmToWav(pcm: Float32Array, sampleRate: number): Blob {
 }
 
 self.onmessage = async (event) => {
+    const { type, text } = event.data;
     try {
-        const { text } = event.data;
-        const synthesizer = await TTSPipeline.getInstance();
-        const wav = await synthesizer(text, {
-            speaker_embeddings: TTSPipeline.speaker_embeddings_data,
+        const synthesizer = await TTSPipeline.getInstance((progress) => {
+            self.postMessage({ type: 'model_loading', message: progress });
         });
-        const wavBlob = pcmToWav(wav.audio, wav.sampling_rate);
-        self.postMessage({
-            type: 'synthesis_result',
-            audio: wavBlob,
-        });
+
+        if (type === 'load') {
+            self.postMessage({ type: 'model_loading', message: { status: 'ready' } });
+            return;
+        }
+        
+        if (type === 'synthesize') {
+            if (!text) {
+                throw new Error("Synthesize error: Text is null or undefined.");
+            }
+            const wav = await synthesizer(text, { speaker_embeddings: TTSPipeline.speaker_embeddings_data });
+            const wavBlob = pcmToWav(wav.audio, wav.sampling_rate);
+            self.postMessage({ type: 'synthesis_result', audio: wavBlob });
+        }
     } catch (error) {
         const message = error instanceof Error ? error.message : 'An unknown error occurred in the tts worker.';
         self.postMessage({ type: 'error', message });
