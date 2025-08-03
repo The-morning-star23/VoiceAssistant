@@ -1,13 +1,7 @@
 import { pipeline, PipelineType } from '@xenova/transformers';
 
-// Define a specific type for the progress callback
-type ProgressCallback = (progress: {
-    status: string;
-    file: string;
-    progress: number;
-    loaded: number;
-    total: number;
-}) => void;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ProgressCallback = (progress: any) => void;
 
 interface TTSOutput {
     audio: Float32Array;

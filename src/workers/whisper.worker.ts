@@ -1,13 +1,7 @@
 import { pipeline, AutomaticSpeechRecognitionPipeline, PipelineType } from '@xenova/transformers';
 
-// Define a specific type for the progress callback
-type ProgressCallback = (progress: {
-    status: string;
-    file: string;
-    progress: number;
-    loaded: number;
-    total: number;
-}) => void;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ProgressCallback = (progress: any) => void;
 
 class WhisperPipeline {
     static task: PipelineType = 'automatic-speech-recognition';
@@ -35,7 +29,17 @@ self.onmessage = async (event) => {
         }
 
         if (type === 'transcribe') {
-            const audioData = new Float32Array(buffer);
+            let audioData = new Float32Array(buffer);
+
+            // THIS IS THE CRITICAL FIX:
+            // Check if the buffer's byte length is a multiple of 4.
+            if (audioData.buffer.byteLength % 4 !== 0) {
+                // If not, create a new buffer that is a multiple of 4.
+                // This effectively trims the extra bytes.
+                const newBuffer = audioData.buffer.slice(0, audioData.buffer.byteLength - (audioData.buffer.byteLength % 4));
+                audioData = new Float32Array(newBuffer);
+            }
+            
             const transcript = await transcriber(audioData, {
                 chunk_length_s: 30,
                 stride_length_s: 5,
