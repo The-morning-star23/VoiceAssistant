@@ -39,6 +39,8 @@ export default function Home() {
                 const { type, text, message } = event.data;
                 if (type === 'transcription_result') {
                     handleTranscription(text);
+                } else if (type === 'model_loading') {
+                    setStatus(`loading_stt_${message.status}`);
                 } else if (type === 'error') {
                     console.error('Whisper Worker Error:', message);
                     alert(`Speech-to-text failed: ${message}`);
@@ -54,6 +56,8 @@ export default function Home() {
                 const { type, audio, message } = event.data;
                 if (type === 'synthesis_result') {
                     handleSynthesis(audio);
+                } else if (type === 'model_loading') {
+                    setStatus(`loading_tts_${message.status}`);
                 } else if (type === 'error') {
                     console.error('TTS Worker Error:', message);
                     alert(`Text-to-speech failed: ${message}`);
@@ -63,28 +67,21 @@ export default function Home() {
             ttsWorkerRef.current = worker;
         }
         
+        // Trigger initial model loading
+        whisperWorkerRef.current?.postMessage({ type: 'load' });
+        ttsWorkerRef.current?.postMessage({ type: 'load' });
+
         return () => {
             whisperWorkerRef.current?.terminate();
             ttsWorkerRef.current?.terminate();
         };
     }, []); // Empty dependency array ensures this runs only once.
 
-    // This useEffect handles the initial loading timeout.
-    useEffect(() => {
-        if (status === 'loading_models') {
-            const loadingTimeout = setTimeout(() => {
-                setStatus(currentStatus => (currentStatus === 'loading_models' ? 'idle' : currentStatus));
-            }, 15000); // Increased timeout for slow first model load
-
-            return () => clearTimeout(loadingTimeout);
-        }
-    }, [status]);
-
     const handleTranscription = (text: string) => {
         perfRef.current.stt_end = performance.now();
         setConversation(prev => [...prev, { speaker: 'user', text }]);
         
-        setStatus('thinking');
+        setStatus('llm_thinking');
         fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -103,7 +100,8 @@ export default function Home() {
             const assistantResponse = data.response;
             if (assistantResponse && ttsWorkerRef.current) {
                 setConversation(prev => [...prev, { speaker: 'assistant', text: assistantResponse }]);
-                ttsWorkerRef.current.postMessage({ text: assistantResponse });
+                setStatus('tts_synthesizing');
+                ttsWorkerRef.current.postMessage({ type: 'synthesize', text: assistantResponse });
             } else {
                 throw new Error(data.error || 'No valid response text from API');
             }
@@ -157,22 +155,11 @@ export default function Home() {
             };
 
             recorder.onstop = async () => {
-                setStatus('thinking'); 
+                setStatus('stt_transcribing'); 
                 try {
                     const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType });
-                    
-                    // This is the most robust way to decode audio from a blob
-                    const audioContext = new AudioContext({ sampleRate: 16000 });
                     const arrayBuffer = await audioBlob.arrayBuffer();
-                    const decodedAudio = await audioContext.decodeAudioData(arrayBuffer);
-                    const audioFloatArray = decodedAudio.getChannelData(0);
-
-                    // Send the clean, decoded audio data to the worker
-                    whisperWorkerRef.current?.postMessage(
-                        audioFloatArray,
-                        [audioFloatArray.buffer]
-                    );
-
+                    whisperWorkerRef.current?.postMessage({ type: 'transcribe', buffer: arrayBuffer }, [arrayBuffer]);
                 } catch (error) {
                     console.error("Error processing audio:", error);
                     alert("There was an error processing the audio. Please try again.");
@@ -209,10 +196,14 @@ export default function Home() {
     };
 
     const getStatusText = () => {
-        if (status === 'loading_models') return 'Loading AI models... (this may take a minute on first load)';
+        if (status.startsWith('loading_stt')) return 'Loading speech-to-text model...';
+        if (status.startsWith('loading_tts')) return 'Loading text-to-speech model...';
+        if (status === 'loading_models') return 'Loading AI models...';
         if (status === 'idle') return 'Press the button and start speaking';
         if (status === 'listening') return 'Listening...';
-        if (status === 'thinking') return 'Thinking...';
+        if (status === 'stt_transcribing') return 'Transcribing audio...';
+        if (status === 'llm_thinking') return 'Thinking...';
+        if (status === 'tts_synthesizing') return 'Synthesizing audio...';
         if (status === 'speaking') return 'Speaking...';
         return '...';
     };
