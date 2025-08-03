@@ -10,7 +10,11 @@ class WhisperPipeline {
 
     static async getInstance(progress_callback?: ProgressCallback) {
         if (this.instance === null) {
-            this.instance = pipeline(this.task, this.model, { progress_callback }) as unknown as Promise<AutomaticSpeechRecognitionPipeline>;
+            // This is the critical fix: Tell the library to not look for optimized models.
+            this.instance = pipeline(this.task, this.model, { 
+                quantized: false,
+                progress_callback 
+            }) as unknown as Promise<AutomaticSpeechRecognitionPipeline>;
         }
         return this.instance;
     }
@@ -29,17 +33,7 @@ self.onmessage = async (event) => {
         }
 
         if (type === 'transcribe') {
-            let audioData = new Float32Array(buffer);
-
-            // THIS IS THE CRITICAL FIX:
-            // Check if the buffer's byte length is a multiple of 4.
-            if (audioData.buffer.byteLength % 4 !== 0) {
-                // If not, create a new buffer that is a multiple of 4.
-                // This effectively trims the extra bytes.
-                const newBuffer = audioData.buffer.slice(0, audioData.buffer.byteLength - (audioData.buffer.byteLength % 4));
-                audioData = new Float32Array(newBuffer);
-            }
-            
+            const audioData = new Float32Array(buffer);
             const transcript = await transcriber(audioData, {
                 chunk_length_s: 30,
                 stride_length_s: 5,

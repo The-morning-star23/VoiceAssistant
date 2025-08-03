@@ -30,7 +30,12 @@ class TTSPipeline {
         }
 
         if (this.instance === null) {
-            const pipelineOptions: Record<string, unknown> = { vocoder: this.vocoder, progress_callback };
+            // This is the critical fix: Tell the library to not look for optimized models.
+            const pipelineOptions: Record<string, unknown> = { 
+                quantized: false,
+                vocoder: this.vocoder, 
+                progress_callback 
+            };
             this.instance = pipeline(this.task, this.model, pipelineOptions) as unknown as Promise<TTSPipelineInstance>;
         }
         return this.instance;
